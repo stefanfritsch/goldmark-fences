@@ -10,7 +10,7 @@ import (
 // Extender allows you to use fenced divs / fenced containers / fences in markdown
 //
 // Fences are a way to wrap other elements in divs and giving those divs
-// attributes using the same syntax as with headings.
+// attributes such as ids or css classes using the same syntax as with headings.
 //
 // :::{#big-div .add-border}
 // this is some text
