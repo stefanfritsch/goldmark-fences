@@ -20,7 +20,7 @@ fences can be nested and given ids as well as classes
 :::
 ```
 
-Now add the css to your stylesheet:
+Now add the following css to your stylesheet:
 
 ```css
 .blue { background-color: steelblue; padding: 5px; }
