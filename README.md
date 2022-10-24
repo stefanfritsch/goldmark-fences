@@ -2,7 +2,7 @@
 
 ## Overview
 
-[Goldmark](github.com/yuin/goldmark) is a fast markdown renderer for Go. Fences are a markdown extension that allows you to wrap parts of a markdown in a `<div>` or other html-tag with custom classes, ids or other html attributes.
+[Goldmark](https://github.com/yuin/goldmark) is a fast markdown renderer for Go. Fences are a markdown extension that allows you to wrap parts of a markdown in a `<div>` or other html-tag with custom classes, ids or other html attributes.
 
 Fences are also called "fenced divs" or "fenced containers." I will use fences because it's the shortest of the available options.
 
