@@ -32,6 +32,32 @@ And the fenced part will look like this (this is an image as github doesn't allo
 
 ![](assets/Screenshot%202022-10-14%20001453.png)
 
+## Full Code Example
+
+A full code example to use the extension with goldmark could look like this:
+
+```go
+	src := []byte(`
+## Hello
+We now try out fences:
+
+:::{#big-div .add-border}
+This paragraph is inside the fenced block.
+
+This as well.
+:::
+  `)
+
+	markdown := goldmark.New(
+		goldmark.WithExtensions(
+			&fences.Extender{},
+		),
+	)
+
+	doc := markdown.Parser().Parse(text.NewReader(src))
+	markdown.Renderer().Render(os.Stdout, src, doc)
+```
+
 ## Possible Use Cases
 
 You can use fences to e.g.
