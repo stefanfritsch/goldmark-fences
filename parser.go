@@ -48,20 +48,29 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 	}
 
 	node := NewFencedContainer()
-	if i < len(line)-1 {
-		rest := line[i:]
-		left := util.TrimLeftSpaceLength(rest)
-		right := util.TrimRightSpaceLength(rest)
+	if i >= len(line)-1 {
+		// If there are no attributes we can't create a div because we won't know
+		// if a ":::" ends the last fenced container or opens a new one
+		return nil, parser.NoChildren
+	}
 
-		if left < len(rest)-right {
-			reader.Advance(i + left)
-			attrs, ok := parser.ParseAttributes(reader)
+	rest := line[i:]
+	left := i + util.TrimLeftSpaceLength(rest)
+	right := len(line) - 1 - util.TrimRightSpaceLength(rest)
 
-			if ok {
-				for _, attr := range attrs {
-					node.SetAttribute(attr.Name, attr.Value)
-				}
-			}
+	if left >= right {
+		// As above:
+		// If there are no attributes we can't create a div because we won't know
+		// if a ":::" ends the last fenced container or opens a new one
+		return nil, parser.NoChildren
+	}
+
+	reader.Advance(left)
+	attrs, ok := parser.ParseAttributes(reader)
+
+	if ok {
+		for _, attr := range attrs {
+			node.SetAttribute(attr.Name, attr.Value)
 		}
 	}
 
