@@ -34,16 +34,17 @@ func (r *Renderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 func (r *Renderer) renderFencedContainer(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	n := node.(*FencedContainer)
 	if entering {
+		n.element = "div"
+		if isNav(node) {
+			n.element = "nav"
+		}
+
 		if n.Attributes() != nil {
-			n.element = "div"
-			if isNav(node) {
-				n.element = "nav"
-			}
 			_, _ = w.WriteString("<" + n.element)
 			html.RenderAttributes(w, n, FencedContainerAttributeFilter)
 			_, _ = w.WriteString(">\n")
 		} else {
-			_, _ = w.WriteString("<div>\n")
+			_, _ = w.WriteString("<" + n.element + ">\n")
 		}
 	} else {
 		_, _ = w.WriteString("</" + n.element + ">\n")
