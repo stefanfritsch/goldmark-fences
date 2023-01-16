@@ -1,6 +1,8 @@
 package fences
 
 import (
+	"fmt"
+
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
@@ -19,6 +21,7 @@ func NewFencedContainerParser() parser.BlockParser {
 }
 
 type fenceData struct {
+	fenceID           string   // The ID of the fence. This enables nested fences with indentation
 	char              byte     // Currently, this is always ":"
 	indent            int      // The indentation of the opening (and closing) tags (:::{})
 	length            int      // The length of the fence, e.g. is it ::: or ::::?
@@ -34,7 +37,7 @@ func (b *fencedContainerParser) Trigger() []byte {
 }
 
 func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc parser.Context) (ast.Node, parser.State) {
-	line, segment := reader.PeekLine()
+	line, _ := reader.PeekLine()
 	pos := pc.BlockOffset()
 	if pos < 0 || line[pos] != ':' {
 		return nil, parser.NoChildren
@@ -76,7 +79,7 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 	node := NewFencedContainer()
 
 	fenceID := genRandomString(24)
-	node.SetAttributeString("data-fenceid", []byte(fenceID))
+	node.SetAttributeString("data-fence", []byte(fenceID))
 
 	attrs, ok := parser.ParseAttributes(reader)
 	if ok {
@@ -86,6 +89,7 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 	}
 
 	fdata := &fenceData{
+		fenceID:           fenceID,
 		char:              fenceChar,
 		indent:            findent,
 		length:            oFenceLength,
@@ -94,13 +98,13 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 		contentHasStarted: false,
 	}
 
-	var fdataMap map[string]*fenceData
+	var fdataMap []*fenceData
 
 	if oldData := pc.Get(fencedContainerInfoKey); oldData != nil {
-		fdataMap = oldData.(map[string]*fenceData)
-		fdataMap[fenceID] = fdata
+		fdataMap = oldData.([]*fenceData)
+		fdataMap = append(fdataMap, fdata)
 	} else {
-		fdataMap = map[string]*fenceData{fenceID: fdata}
+		fdataMap = []*fenceData{fdata}
 	}
 	pc.Set(fencedContainerInfoKey, fdataMap)
 
@@ -108,7 +112,7 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 	line, _ = reader.PeekLine()
 	w, pos := util.IndentWidth(line, reader.LineOffset())
 
-	if close, _ := b.closes(line, segment, w, pos, node, fdata); close {
+	if close, _ := hasClosingTag(line, w, pos, fdata); w < fdata.indent || close {
 		return node, parser.NoChildren
 	}
 
@@ -116,16 +120,33 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 }
 
 func (b *fencedContainerParser) Continue(node ast.Node, reader text.Reader, pc parser.Context) parser.State {
-	rawdata := pc.Get(fencedContainerInfoKey)
-	fdataMap := rawdata.(map[string]*fenceData)
+	// ========================================================================== //
+	// Get fenceID from node
 
-	rawFenceID, ok := node.AttributeString("data-fenceid")
+	rawFenceID, ok := node.AttributeString("data-fence")
 	if !ok {
 		// huhu: don't panic in production
 		panic("fenceID is missing")
 	}
 	fenceID := string(rawFenceID.([]byte))
-	fdata := fdataMap[fenceID]
+
+	// ========================================================================== //
+	// 	Get fenceData for current fenceID
+
+	rawdata := pc.Get(fencedContainerInfoKey)
+	fdataMap := rawdata.([]*fenceData)
+
+	var fdata *fenceData
+	var flevel int
+	for flevel = 0; flevel < len(fdataMap); flevel++ {
+		fdata = fdataMap[flevel]
+		if fdata.fenceID == fenceID {
+			break
+		}
+	}
+
+	// ========================================================================== //
+	// 	Set indentation level if it hasn't been set yet
 
 	line, segment := reader.PeekLine()
 	w, pos := util.IndentWidth(line, reader.LineOffset())
@@ -134,13 +155,24 @@ func (b *fencedContainerParser) Continue(node ast.Node, reader text.Reader, pc p
 		fdata.contentHasStarted = true
 		fdata.contentIndent = w
 
-		fdataMap[fenceID] = fdata
+		fdataMap[flevel] = fdata
 		pc.Set(fencedContainerInfoKey, fdataMap)
 	}
 
-	if close, newline := b.closes(line, segment, w, pos, node, fdata); close {
+	// ========================================================================== //
+	// Are we closing the node?
+	// * Either the indentation is below the indentation of the opening tags
+	// * or it is at the level of the opening tags but the content was indented
+	// * or there is a closing tag and we're in the deepest fenced block
+	// indentClose :=
+	// 	!util.IsBlank(line) &&
+	// 		(w < fdata.indent || (w == fdata.indent && fdata.contentIndent > 0))
+	close, newline := hasClosingTag(line, w, pos, fdata)
+
+	if close && flevel == len(fdataMap)-1 {
 		reader.Advance(segment.Stop - segment.Start - newline + segment.Padding)
-		delete(fdataMap, fenceID)
+		fdataMap = fdataMap[:flevel]
+		node.SetAttributeString("data-fence", []byte(fmt.Sprint(flevel)))
 
 		if len(fdataMap) == 0 {
 			return parser.Close
@@ -151,7 +183,12 @@ func (b *fencedContainerParser) Continue(node ast.Node, reader text.Reader, pc p
 	}
 
 	if fdata.contentIndent > 0 {
-		reader.Advance(fdata.contentIndent)
+		dontJumpLineEnd := segment.Stop - segment.Start - 1
+		if fdata.contentIndent < dontJumpLineEnd {
+			dontJumpLineEnd = fdata.contentIndent
+		}
+
+		reader.Advance(dontJumpLineEnd)
 	}
 
 	return parser.Continue | parser.HasChildren
@@ -168,18 +205,7 @@ func (b *fencedContainerParser) CanAcceptIndentedLine() bool {
 	return false
 }
 
-func (b *fencedContainerParser) closes(line []byte, segment text.Segment, w int, pos int, node ast.Node, fdata *fenceData) (bool, int) {
-
-	// don't close anything but the last node
-	if node != fdata.node {
-		return false, 1
-	}
-
-	// If the indentation is lower, we assume the user forgot to close the block
-	if w < fdata.indent {
-		return true, 1
-	}
-
+func hasClosingTag(line []byte, w int, pos int, fdata *fenceData) (bool, int) {
 	// else, check for the correct number of closing chars and provide the info
 	// necessary to advance the reader
 	if w == fdata.indent {
