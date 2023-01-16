@@ -19,10 +19,12 @@ func NewFencedContainerParser() parser.BlockParser {
 }
 
 type fenceData struct {
-	char   byte
-	indent int
-	length int
-	node   ast.Node
+	char              byte     // Currently, this is always ":"
+	indent            int      // The indentation of the opening (and closing) tags (:::{})
+	length            int      // The length of the fence, e.g. is it ::: or ::::?
+	node              ast.Node // The node of the fence
+	contentIndent     int      // The indentation of the content relative to the previous fenced block. The first line of the content is taken as its indentation. If you want a fence with just a code block you need to use backticks
+	contentHasStarted bool     // Only used as an indicator if contentIndent has been set already
 }
 
 var fencedContainerInfoKey = parser.NewContextKey()
@@ -47,7 +49,9 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 		return nil, parser.NoChildren
 	}
 
-	node := NewFencedContainer()
+	// ========================================================================== //
+	// 	Without attributes we return
+
 	if i >= len(line)-1 {
 		// If there are no attributes we can't create a div because we won't know
 		// if a ":::" ends the last fenced container or opens a new one
@@ -65,23 +69,38 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 		return nil, parser.NoChildren
 	}
 
-	reader.Advance(left)
-	attrs, ok := parser.ParseAttributes(reader)
+	// ========================================================================== //
+	// 	With attributes we construct the node
 
+	reader.Advance(left)
+	node := NewFencedContainer()
+
+	fenceID := genRandomString(24)
+	node.SetAttributeString("data-fenceid", []byte(fenceID))
+
+	attrs, ok := parser.ParseAttributes(reader)
 	if ok {
 		for _, attr := range attrs {
 			node.SetAttribute(attr.Name, attr.Value)
 		}
 	}
 
-	fdata := &fenceData{fenceChar, findent, oFenceLength, node}
-	var fdataMap []*fenceData
+	fdata := &fenceData{
+		char:              fenceChar,
+		indent:            findent,
+		length:            oFenceLength,
+		node:              node,
+		contentIndent:     0,
+		contentHasStarted: false,
+	}
+
+	var fdataMap map[string]*fenceData
 
 	if oldData := pc.Get(fencedContainerInfoKey); oldData != nil {
-		fdataMap = oldData.([]*fenceData)
-		fdataMap = append(fdataMap, fdata)
+		fdataMap = oldData.(map[string]*fenceData)
+		fdataMap[fenceID] = fdata
 	} else {
-		fdataMap = []*fenceData{fdata}
+		fdataMap = map[string]*fenceData{fenceID: fdata}
 	}
 	pc.Set(fencedContainerInfoKey, fdataMap)
 
@@ -98,15 +117,30 @@ func (b *fencedContainerParser) Open(parent ast.Node, reader text.Reader, pc par
 
 func (b *fencedContainerParser) Continue(node ast.Node, reader text.Reader, pc parser.Context) parser.State {
 	rawdata := pc.Get(fencedContainerInfoKey)
-	fdataMap := rawdata.([]*fenceData)
-	fdata := fdataMap[len(fdataMap)-1]
+	fdataMap := rawdata.(map[string]*fenceData)
+
+	rawFenceID, ok := node.AttributeString("data-fenceid")
+	if !ok {
+		// huhu: don't panic in production
+		panic("fenceID is missing")
+	}
+	fenceID := string(rawFenceID.([]byte))
+	fdata := fdataMap[fenceID]
 
 	line, segment := reader.PeekLine()
 	w, pos := util.IndentWidth(line, reader.LineOffset())
 
+	if !fdata.contentHasStarted && !util.IsBlank(line[pos:]) {
+		fdata.contentHasStarted = true
+		fdata.contentIndent = w
+
+		fdataMap[fenceID] = fdata
+		pc.Set(fencedContainerInfoKey, fdataMap)
+	}
+
 	if close, newline := b.closes(line, segment, w, pos, node, fdata); close {
 		reader.Advance(segment.Stop - segment.Start - newline + segment.Padding)
-		fdataMap = fdataMap[:len(fdataMap)-1]
+		delete(fdataMap, fenceID)
 
 		if len(fdataMap) == 0 {
 			return parser.Close
@@ -114,6 +148,10 @@ func (b *fencedContainerParser) Continue(node ast.Node, reader text.Reader, pc p
 			pc.Set(fencedContainerInfoKey, fdataMap)
 			return parser.Close
 		}
+	}
+
+	if fdata.contentIndent > 0 {
+		reader.Advance(fdata.contentIndent)
 	}
 
 	return parser.Continue | parser.HasChildren
