@@ -38,7 +38,7 @@ This is not fenced because we can't differentiate between nested and closing ":"
 	// Output:
 	// <h2>Hello</h2>
 	// <p>The following contains no classes</p>
-	// <div>
+	// <div data-fence="0">
 	// <p>This is fenced</p>
 	// </div>
 	// <p>But you need something to denote opening &quot;:&quot;</p>

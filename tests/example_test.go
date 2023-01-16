@@ -39,9 +39,9 @@ and finally the outer one:
 	// Output:
 	// <h2>Hello</h2>
 	// <p>The following contains an id and a class</p>
-	// <div id="big-div" class="add-border">
+	// <div data-fence="0" id="big-div" class="add-border">
 	// <p>And the next fence contains two classes.</p>
-	// <div class="background-green font-big">
+	// <div data-fence="1" class="background-green font-big">
 	// <h2>This is nested within nested fences</h2>
 	// <p>here we close the inner fence:</p>
 	// </div>
